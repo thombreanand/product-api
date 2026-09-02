@@ -1,0 +1,13 @@
+package com.example.productapi.service;
+import com.example.productapi.dto.*; import com.example.productapi.entity.*; import com.example.productapi.exception.ResourceNotFoundException; import com.example.productapi.repository.ProductRepository; import org.springframework.data.domain.*; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional; import java.time.LocalDateTime; import java.util.stream.Collectors;
+@Service public class ProductService {
+ private final ProductRepository repo; private final AsyncAuditService audit; public ProductService(ProductRepository r, AsyncAuditService audit){repo=r;this.audit=audit;}
+ @Transactional(readOnly=true) public Page<ProductResponse> findAll(Pageable p){return repo.findAll(p).map(this::toResponse);}
+ @Transactional(readOnly=true) public ProductResponse find(Long id){return toResponse(repo.findById(id).orElseThrow(()->new ResourceNotFoundException("Product not found: "+id)));}
+ @Transactional public ProductResponse create(ProductRequest req,String user){var p=new Product();p.setProductName(req.productName());p.setCreatedBy(user);p.setCreatedOn(LocalDateTime.now());applyItems(p,req.items());var saved=repo.save(p); audit.record("CREATE", saved.getId(), user); return toResponse(saved);}
+ @Transactional public ProductResponse update(Long id,ProductRequest req,String user){var p=repo.findById(id).orElseThrow(()->new ResourceNotFoundException("Product not found: "+id));p.setProductName(req.productName());p.setModifiedBy(user);p.setModifiedOn(LocalDateTime.now());p.getItems().clear();applyItems(p,req.items());var saved=repo.save(p); audit.record("UPDATE", saved.getId(), user); return toResponse(saved);}
+ @Transactional public void delete(Long id){if(!repo.existsById(id))throw new ResourceNotFoundException("Product not found: "+id);repo.deleteById(id); audit.record("DELETE", id, "system");}
+ @Transactional(readOnly=true) public java.util.List<ItemResponse> items(Long id){var p=repo.findById(id).orElseThrow(()->new ResourceNotFoundException("Product not found: "+id));return p.getItems().stream().map(i->new ItemResponse(i.getId(),i.getQuantity())).collect(Collectors.toList());}
+ private void applyItems(Product p,java.util.List<ItemRequest> list){if(list!=null)list.forEach(x->{var i=new Item();i.setQuantity(x.quantity());i.setProduct(p);p.getItems().add(i);});}
+ private ProductResponse toResponse(Product p){return new ProductResponse(p.getId(),p.getProductName(),p.getCreatedBy(),p.getCreatedOn(),p.getModifiedBy(),p.getModifiedOn(),p.getItems().stream().map(i->new ItemResponse(i.getId(),i.getQuantity())).toList());}
+}
